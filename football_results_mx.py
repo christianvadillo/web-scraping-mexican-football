@@ -1,14 +1,15 @@
 import locale
 import scrapy
+import json
 
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
 from pprint import pprint
 from pydantic import BaseModel, validator, ValidationError
 from scrapy.crawler import CrawlerProcess
 from scrapy.selector import SelectorList
 from typing import Dict, List, Optional
-
 
 locale.setlocale(locale.LC_ALL, "es_ES")  # To parse correctly the months
 
@@ -53,7 +54,7 @@ def _filter_links(links: List[str]) -> List[str]:
     """
 
     filtered = [(int(link[-4:]), link) for link in links if not link.endswith("mexico")]
-    filtered = [link[1] for link in filtered if link[0] > 2017]
+    filtered = [link[1] for link in filtered if link[0] > 2002]
     filtered += [link for link in links if link.endswith("mexico")]
     return filtered
 
@@ -132,6 +133,18 @@ class ResultsSpider(scrapy.Spider):
         print("------------------")
 
 
+def to_json(results: ResultsSpider):
+    results_dir = Path("results")
+    results_dir.mkdir(exist_ok=True)
+
+    for season, games in results.seasons.items():
+        with open(results_dir / f"{season}.txt", "w", encoding="utf-8") as f:
+            for game in games:
+                game.datetime = datetime.strftime(game.datetime, "%Y-%m- %H:%M")
+                json.dump(game.dict(), f)
+                f.write(",\n")
+
+
 def scrape_page():
     # Run the Spider
     process = CrawlerProcess()
@@ -139,8 +152,11 @@ def scrape_page():
     process.start()
 
     print(ResultsSpider.seasons.keys())
+    to_json(ResultsSpider)
+
     for season in ResultsSpider.seasons:
         print(len(ResultsSpider.seasons[season]))
+
     import pdb
 
     pdb.set_trace()
