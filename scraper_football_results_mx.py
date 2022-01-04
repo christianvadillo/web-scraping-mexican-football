@@ -1,4 +1,3 @@
-import locale
 import scrapy
 import json
 
@@ -6,39 +5,15 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from pprint import pprint
-from pydantic import BaseModel, validator, ValidationError
 from scrapy.crawler import CrawlerProcess
 from scrapy.selector import SelectorList
 from typing import Dict, List, Optional
 
-locale.setlocale(locale.LC_ALL, "es_ES")  # To parse correctly the months
+from data_entities import Game
+from db import GamesSQlite
 
 
-class Game(BaseModel):
-    datetime: datetime
-    home_team: str
-    away_team: str
-    home_goal: Optional[int]
-    away_goal: Optional[int]
-    matchday: int
-
-    @validator("matchday", pre=True)
-    def validate_matchday(cls, value):
-        if value is None:
-            raise ValidationError("matchday is required")
-        return value.strip(" ")[-1]
-
-    @validator("datetime", pre=True)
-    def validate_datetime(cls, value):
-        if value is None:
-            raise ValidationError("datetime is required")
-        try:
-            return datetime.strptime(value, "%d %b %y a las %H:%M")
-        except Exception as e:
-            print(e)
-            import pdb
-
-            pdb.set_trace()
+db_games = GamesSQlite()
 
 
 def _filter_links(links: List[str]) -> List[str]:
@@ -112,16 +87,16 @@ class ResultsSpider(scrapy.Spider):
         for row in results_table.css("tr.vevent"):
             result = row.css("td.rstd > a.url > span.clase::text").extract_first()
             try:
-                ResultsSpider.seasons[self.active_season].append(
-                    Game(
-                        datetime=row.css("td.fecha::attr(title)").extract_first(),
-                        home_team=row.css("td.equipo1 > a::text").extract_first(),
-                        away_team=row.css("td.equipo2> a::text").extract_first(),
-                        home_goal=result.split("-")[0],
-                        away_goal=result.split("-")[1],
-                        matchday=self.jornada[-1],
-                    )
+                game = Game(
+                    datetime=row.css("td.fecha::attr(title)").extract_first(),
+                    home_team=row.css("td.equipo1 > a::text").extract_first(),
+                    away_team=row.css("td.equipo2> a::text").extract_first(),
+                    home_goal=result.split("-")[0],
+                    away_goal=result.split("-")[1],
+                    matchday=self.jornada[-1],
                 )
+                ResultsSpider.seasons[self.active_season].append(game)
+                db_games.insert(game)
             except AttributeError as e:
                 print(e)
                 import pdb
@@ -140,7 +115,7 @@ def to_json(results: ResultsSpider):
     for season, games in results.seasons.items():
         with open(results_dir / f"{season}.txt", "w", encoding="utf-8") as f:
             for game in games:
-                game.datetime = datetime.strftime(game.datetime, "%Y-%m- %H:%M")
+                game.datetime = datetime.strftime(game.datetime, "%Y-%m-%d %H:%M")
                 json.dump(game.dict(), f)
                 f.write(",\n")
 
@@ -156,13 +131,6 @@ def scrape_page():
 
     for season in ResultsSpider.seasons:
         print(len(ResultsSpider.seasons[season]))
-
-    import pdb
-
-    pdb.set_trace()
-
-    # for g in ResultsSpider.seasons["apertura_mexico_2022"]:
-    #     pprint(g.__dict__)
 
 
 if __name__ == "__main__":
